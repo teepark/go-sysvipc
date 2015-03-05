@@ -4,12 +4,11 @@ import (
 	"os"
 	"syscall"
 	"testing"
-	"time"
 )
 
 func TestSendRcv(t *testing.T) {
-	setup(t)
-	defer teardown(t)
+	msgSetup(t)
+	defer msgTeardown(t)
 
 	q.Send(6, []byte("test message body"), 0)
 	msg, mtyp, err := q.Receive(64, -100, 0)
@@ -22,9 +21,9 @@ func TestSendRcv(t *testing.T) {
 	}
 }
 
-func TestStats(t *testing.T) {
-	setup(t)
-	defer teardown(t)
+func TestMSGStats(t *testing.T) {
+	msgSetup(t)
+	defer msgTeardown(t)
 
 	msg := "this is a message in a test"
 
@@ -45,20 +44,11 @@ func TestStats(t *testing.T) {
 		t.Error("phantom messages?")
 	}
 
-	before := time.Now()
 	q.Send(4, []byte(msg), 0)
-	after := time.Now()
 
 	info, err = q.Stat()
 	if err != nil {
 		t.Fatal(err)
-	}
-	if info.LastSend.After(after) {
-		t.Error("timestamp late?")
-	}
-	if info.LastSend.Unix() < before.Unix() {
-		// mq stat times are truncated to the second
-		t.Error("timestamp early?")
 	}
 	if info.MsgCount != 1 {
 		t.Error("missing message?")
@@ -68,9 +58,9 @@ func TestStats(t *testing.T) {
 	}
 }
 
-func TestSet(t *testing.T) {
-	setup(t)
-	defer teardown(t)
+func TestMSGSet(t *testing.T) {
+	msgSetup(t)
+	defer msgTeardown(t)
 
 	info, err := q.Stat()
 	if err != nil {
@@ -101,8 +91,8 @@ func TestSet(t *testing.T) {
 }
 
 func TestRemove(t *testing.T) {
-	setup(t)
-	defer teardown(t)
+	msgSetup(t)
+	defer msgTeardown(t)
 
 	if err := q.Remove(); err != nil {
 		t.Fatal(err)
@@ -112,13 +102,13 @@ func TestRemove(t *testing.T) {
 		t.Fatal("stat on a removed queue should fail with EINVAL")
 	}
 
-	// so the teardown doesn't fail
-	setup(t)
+	// so the msgTeardown doesn't fail
+	msgSetup(t)
 }
 
 var q MessageQueue
 
-func setup(t *testing.T) {
+func msgSetup(t *testing.T) {
 	mq, err := GetMsgQueue(0xDA7ABA5E, IPC_CREAT|IPC_EXCL|0600)
 	if err != nil {
 		t.Fatal(err)
@@ -126,7 +116,7 @@ func setup(t *testing.T) {
 	q = mq
 }
 
-func teardown(t *testing.T) {
+func msgTeardown(t *testing.T) {
 	if err := q.Remove(); err != nil {
 		t.Fatal(err)
 	}
