@@ -13,7 +13,6 @@ import "C"
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"time"
 	"unsafe"
 )
@@ -35,10 +34,6 @@ func GetMsgQueue(key, flag int64) (MessageQueue, error) {
 
 // Send places a new message onto the queue
 func (mq MessageQueue) Send(mtyp int64, body []byte, flag int64) error {
-	if mtyp <= 0 {
-		return errors.New("sysvipc: MessageQueue.Send() mtype must be positive")
-	}
-
 	b := make([]byte, len(body)+8)
 	binary.PutVarint(b[:8], mtyp)
 	copy(b[8:], body)

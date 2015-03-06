@@ -6,9 +6,19 @@ import (
 	"testing"
 )
 
+func TestMSGBadGet(t *testing.T) {
+	if _, err := GetMsgQueue(0xDA7ABA5E, 0); err != syscall.ENOENT {
+		t.Error("GetMsgQueue on a non-existent queue without CREAT should fail")
+	}
+}
+
 func TestSendRcv(t *testing.T) {
 	msgSetup(t)
 	defer msgTeardown(t)
+
+	if err := q.Send(-1, nil, 0); err != syscall.EINVAL {
+		t.Error("msgsnd with negative mtyp should fail", err)
+	}
 
 	q.Send(6, []byte("test message body"), 0)
 	msg, mtyp, err := q.Receive(64, -100, 0)
@@ -17,7 +27,7 @@ func TestSendRcv(t *testing.T) {
 	}
 
 	if string(msg) != "test message body" || mtyp != 6 {
-		t.Error(msg, mtyp)
+		t.Errorf("%q %v", string(msg), mtyp)
 	}
 }
 

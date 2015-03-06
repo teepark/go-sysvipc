@@ -60,10 +60,9 @@ func GetSemSet(key, count, flag int64) (*SemaphoreSet, error) {
 func (ss *SemaphoreSet) Run(ops *SemOps, timeout time.Duration) error {
 	var cto *C.struct_timespec
 	if timeout >= 0 {
-		sec := timeout / time.Second
 		cto = &C.struct_timespec{
-			tv_sec:  C.__time_t(sec),
-			tv_nsec: C.__syscall_slong_t(timeout - sec),
+			tv_sec:  C.__time_t(timeout / time.Second),
+			tv_nsec: C.__syscall_slong_t(timeout % time.Second),
 		}
 	}
 
