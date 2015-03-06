@@ -137,7 +137,10 @@ type MQInfo struct {
 	LastRcver  int
 }
 
-// real c-style pointer casting
+/*
+real c-style pointer casting
+*/
+
 func serialize(num int64) []byte {
 	b := make([]byte, 8)
 	base := uintptr(unsafe.Pointer(&num))
