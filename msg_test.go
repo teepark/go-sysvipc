@@ -20,6 +20,10 @@ func TestSendRcv(t *testing.T) {
 		t.Error("msgsnd with negative mtyp should fail", err)
 	}
 
+	if _, _, err := MessageQueue(5).Receive(64, -1, 0); err != syscall.EINVAL {
+		t.Error("msgrcv with bad msqid should fail", err)
+	}
+
 	q.Send(6, []byte("test message body"), 0)
 	msg, mtyp, err := q.Receive(64, -100, 0)
 	if err != nil {
@@ -103,6 +107,10 @@ func TestMSGSet(t *testing.T) {
 func TestRemove(t *testing.T) {
 	msgSetup(t)
 	defer msgTeardown(t)
+
+	if err := MessageQueue(5).Remove(); err != syscall.EINVAL {
+		t.Error("remove on a bad mqid should fail", err)
+	}
 
 	if err := q.Remove(); err != nil {
 		t.Fatal(err)

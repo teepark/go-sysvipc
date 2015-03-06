@@ -11,8 +11,6 @@ int msgctl(int msqid, int cmd, struct msqid_ds *buf);
 */
 import "C"
 import (
-	"bytes"
-	"encoding/binary"
 	"time"
 	"unsafe"
 )
@@ -35,7 +33,7 @@ func GetMsgQueue(key, flag int64) (MessageQueue, error) {
 // Send places a new message onto the queue
 func (mq MessageQueue) Send(mtyp int64, body []byte, flag int64) error {
 	b := make([]byte, len(body)+8)
-	binary.PutVarint(b[:8], mtyp)
+	copy(b[:8], serialize(mtyp))
 	copy(b[8:], body)
 
 	rc, err := C.msgsnd(
@@ -65,12 +63,8 @@ func (mq MessageQueue) Receive(maxlen uint, msgtyp, flag int64) ([]byte, int64, 
 		return nil, 0, err
 	}
 
-	mtyp, err := binary.ReadVarint(bytes.NewReader(b[:8]))
-	if err != nil {
-		return nil, 0, err
-	}
-
-	return b[8:rc+8], mtyp, nil
+	mtyp := deserialize(b[:8])
+	return b[8 : rc+8], mtyp, nil
 }
 
 // Stat produces information about the queue.
@@ -141,4 +135,18 @@ type MQInfo struct {
 
 	LastSender int
 	LastRcver  int
+}
+
+// real c-style pointer casting
+func serialize(num int64) []byte {
+	b := make([]byte, 8)
+	base := uintptr(unsafe.Pointer(&num))
+	for i := 0; i < 8; i++ {
+		b[i] = *(*byte)(unsafe.Pointer(base + uintptr(i)))
+	}
+	return b
+}
+
+func deserialize(b []byte) int64 {
+	return *(*int64)(unsafe.Pointer(&b[0]))
 }

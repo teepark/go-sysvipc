@@ -1,14 +1,41 @@
 package sysvipc
 
 import (
+	"io"
 	"os"
+	"syscall"
 	"testing"
 )
 
-var (
-	shm   *SharedMem
-	mount *SharedMemMount
-)
+func TestSHMErrors(t *testing.T) {
+	if _, err := GetSharedMem(0xDA7ABA5E, 64, 0); err != syscall.ENOENT {
+		t.Error("shmget without IPC_CREAT should have failed")
+	}
+
+	if _, err := (&SharedMem{5, 64}).Attach(0); err != syscall.EINVAL && err != syscall.EIDRM {
+		t.Error("shmat on a made-up shmid should fail", err)
+	}
+
+	if err := (&SharedMem{5, 64}).Remove(); err != syscall.EINVAL && err != syscall.EIDRM {
+		t.Error("shmctl(IPC_RMID) on a made-up shmid should fail", err)
+	}
+
+	sm, err := GetSharedMem(0xDA7ABA5E, 64, IPC_CREAT|IPC_EXCL|0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sm.Remove()
+	mnt, err := sm.Attach(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mnt.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := mnt.Close(); err == nil {
+		t.Error("double close should fail")
+	}
+}
 
 func TestReadAndWrite(t *testing.T) {
 	shmSetup(t)
@@ -35,9 +62,91 @@ func TestReadAndWrite(t *testing.T) {
 	if string(holder) != s {
 		t.Errorf("mismatched text, got back %v", holder)
 	}
+
+	_, err = mount.Seek(int64(-len(s)), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	b := make([]byte, len(s)*2)
+	i, err := mount.Read(b)
+	if err != io.EOF {
+		t.Error("a read that doesn't fill the buffer should give EOF", err)
+	}
+	if i != len(s) {
+		t.Error("wrong length", i)
+	}
+
+	_, err = mount.Seek(0, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	i, err = mount.Read(b)
+	if err != io.EOF {
+		t.Error("a read that comes up empty should give EOF", err)
+	}
+	if i != 0 {
+		t.Error("wrong length", i)
+	}
+
+	i, err = mount.Write(b)
+	if err != io.ErrShortWrite {
+		t.Error("a write that couldn't complete should give ErrShortWrite", err)
+	}
+	if i != 0 {
+		t.Error("wrong length", i)
+	}
 }
 
-func TestReadAndWriteByte(t *testing.T) {
+func TestSHMSeeks(t *testing.T) {
+	shmSetup(t)
+	defer shmTeardown(t)
+
+	i, err := mount.Seek(2048, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i != 2048 {
+		t.Error("Seek to 2048 from the beginning should land at 2048", i)
+	}
+
+	j, err := mount.Seek(50, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if j != 2098 {
+		t.Error("Seek forward 50 should have landed at 2098", j)
+	}
+
+	k, err := mount.Seek(0, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k != 4096 {
+		t.Error("Seek to end should land at 4096, the segment length", k)
+	}
+
+	_, err = mount.Seek(0, 3)
+	if err == nil {
+		t.Error("should fail on a bad 'whence'")
+	}
+
+	_, err = mount.Seek(-10, 0)
+	if err == nil {
+		t.Error("should fail when we end up at a negative index")
+	}
+
+	l, err := mount.Seek(7000, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l != 4096 {
+		t.Error("should max out seeking to the end", l)
+	}
+}
+
+func TestSHMReadAndWriteByte(t *testing.T) {
 	shmSetup(t)
 	defer shmTeardown(t)
 
@@ -61,6 +170,18 @@ func TestReadAndWriteByte(t *testing.T) {
 		if b != c {
 			t.Errorf("mismatched byte at position %d: %d vs %d", i, c, b)
 		}
+	}
+
+	if _, err := mount.Seek(0, 2); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := mount.ReadByte(); err != io.EOF {
+		t.Error("attempt to ReadByte from the end should produce EOF", err)
+	}
+
+	if err := mount.WriteByte('+'); err != io.ErrShortWrite {
+		t.Error("attempt to WriteByte from the end should ErrShortWrite", err)
 	}
 }
 
@@ -96,6 +217,14 @@ func TestUnreadByte(t *testing.T) {
 		case b != c:
 			t.Error(i, c, b)
 		}
+	}
+
+	if _, err := mount.Seek(0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := mount.UnreadByte(); err == nil {
+		t.Error("UnreadByte from beginning should fail", err)
 	}
 }
 
@@ -169,10 +298,15 @@ func TestSHMSet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if inf.Perms.Mode & 0777 != 0644 {
+	if inf.Perms.Mode&0777 != 0644 {
 		t.Error("mode change didn't take")
 	}
 }
+
+var (
+	shm   *SharedMem
+	mount *SharedMemMount
+)
 
 func shmSetup(t *testing.T) {
 	mem, err := GetSharedMem(0xDA7ABA5E, 4096, IPC_CREAT|IPC_EXCL|0600)
