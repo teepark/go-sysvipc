@@ -8,11 +8,11 @@ import (
 )
 
 func TestSHMErrors(t *testing.T) {
-	if _, err := GetSharedMem(0xDA7ABA5E, 64, 0); err != syscall.ENOENT {
+	if _, err := GetSharedMem(0xDA7ABA5E, 64, nil); err != syscall.ENOENT {
 		t.Error("shmget without IPC_CREAT should have failed")
 	}
 
-	if _, err := (&SharedMem{5, 64}).Attach(0); err != syscall.EINVAL && err != syscall.EIDRM {
+	if _, err := (&SharedMem{5, 64}).Attach(nil); err != syscall.EINVAL && err != syscall.EIDRM {
 		t.Error("shmat on a made-up shmid should fail", err)
 	}
 
@@ -20,12 +20,16 @@ func TestSHMErrors(t *testing.T) {
 		t.Error("shmctl(IPC_RMID) on a made-up shmid should fail", err)
 	}
 
-	sm, err := GetSharedMem(0xDA7ABA5E, 64, IPC_CREAT|IPC_EXCL|0600)
+	sm, err := GetSharedMem(0xDA7ABA5E, 64, &SHMFlags{
+		Create:    true,
+		Exclusive: true,
+		Perms:     0600,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer sm.Remove()
-	mnt, err := sm.Attach(0)
+	mnt, err := sm.Attach(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,6 +100,24 @@ func TestReadAndWrite(t *testing.T) {
 	}
 	if i != 0 {
 		t.Error("wrong length", i)
+	}
+}
+
+func TestSHMReadOnlyError(t *testing.T) {
+	shmSetup(t)
+	defer shmTeardown(t)
+
+	roat, err := shm.Attach(&SHMAttachFlags{ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := roat.Write([]byte("ohai!")); err == nil {
+		t.Error("should error on write to a read-only mount", err)
+	}
+
+	if err := roat.WriteByte('+'); err == nil {
+		t.Error("should error on WriteByte to a read-only mount", err)
 	}
 }
 
@@ -258,7 +280,7 @@ func TestSHMStat(t *testing.T) {
 		t.Error("wrong number of attaches:", info.CurrentAttaches)
 	}
 
-	mnt2, err := shm.Attach(0)
+	mnt2, err := shm.Attach(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,13 +331,17 @@ var (
 )
 
 func shmSetup(t *testing.T) {
-	mem, err := GetSharedMem(0xDA7ABA5E, 4096, IPC_CREAT|IPC_EXCL|0600)
+	mem, err := GetSharedMem(0xDA7ABA5E, 4096, &SHMFlags{
+		Create:    true,
+		Exclusive: true,
+		Perms:     0600,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	shm = mem
 
-	mnt, err := shm.Attach(0)
+	mnt, err := shm.Attach(nil)
 	if err != nil {
 		t.Fatal(err)
 	}

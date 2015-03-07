@@ -24,8 +24,8 @@ type SharedMem struct {
 }
 
 // GetSharedMem creates or retrieves the shared memory segment for an IPC key
-func GetSharedMem(key int64, size uint64, flag int64) (*SharedMem, error) {
-	rc, err := C.shmget(C.key_t(key), C.size_t(size), C.int(flag))
+func GetSharedMem(key int64, size uint64, flags *SHMFlags) (*SharedMem, error) {
+	rc, err := C.shmget(C.key_t(key), C.size_t(size), C.int(flags.flags()))
 	if rc == -1 {
 		return nil, err
 	}
@@ -33,13 +33,13 @@ func GetSharedMem(key int64, size uint64, flag int64) (*SharedMem, error) {
 }
 
 // Attach brings a shared memory segment into the current process's memory space.
-func (shm *SharedMem) Attach(flag int64) (*SharedMemMount, error) {
-	ptr, err := C.shmat(C.int(shm.id), nil, C.int(flag))
+func (shm *SharedMem) Attach(flags *SHMAttachFlags) (*SharedMemMount, error) {
+	ptr, err := C.shmat(C.int(shm.id), nil, C.int(flags.flags()))
 	if err != nil {
 		return nil, err
 	}
 
-	return &SharedMemMount{ptr, 0, shm.length}, nil
+	return &SharedMemMount{ptr, 0, shm.length, flags.ro()}, nil
 }
 
 // Stat produces meta information about the shared memory segment.
@@ -102,6 +102,10 @@ func (shm *SharedMem) Remove() error {
 type SharedMemMount struct {
 	ptr            unsafe.Pointer
 	offset, length uint
+
+	// We have to store readonly here to prevent Write and WriteByte.
+	// I'd be happy to let it panic, but C segfault panics can't recover.
+	readonly bool
 }
 
 // Read pulls bytes out of the shared memory segment.
@@ -126,6 +130,11 @@ func (shma *SharedMemMount) Read(p []byte) (int, error) {
 
 // Write places bytes into the shared memory segment.
 func (shma *SharedMemMount) Write(p []byte) (int, error) {
+	if shma.readonly {
+		// see comment on readonly field above
+		return 0, errors.New("Read-Only shared mem attachment")
+	}
+
 	var err error
 	l := uint(len(p))
 	if l > (shma.length - shma.offset) {
@@ -165,6 +174,10 @@ func (shma *SharedMemMount) UnreadByte() error {
 
 // WriteByte places a single byte at the current position in shared memory.
 func (shma *SharedMemMount) WriteByte(c byte) error {
+	if shma.readonly {
+		// see comment on readonly field above
+		return errors.New("Read-Only shared mem attachment")
+	}
 	if shma.offset == shma.length {
 		return io.ErrShortWrite
 	}
@@ -226,4 +239,61 @@ type SHMInfo struct {
 	LastUserPID int
 
 	CurrentAttaches uint
+}
+
+// SHMFlags holds the options for GetSharedMem
+type SHMFlags struct {
+	// Create controls whether to create the shared memory segment if it
+	// doesn't already exist.
+	Create bool
+
+	// Exclusive causes GetSharedMem to fail if the shared memory already
+	// exists (only useful with Create).
+	Exclusive bool
+
+	// Perms is the file-style (rwxrwxrwx) permissions with which to create the
+	// shared memory segment (also only useful with Create).
+	Perms int
+}
+
+func (sf *SHMFlags) flags() int64 {
+	if sf == nil {
+		return 0
+	}
+
+	var f int64 = int64(sf.Perms) & 0777
+	if sf.Create {
+		f |= int64(C.IPC_CREAT)
+	}
+	if sf.Exclusive {
+		f |= int64(C.IPC_EXCL)
+	}
+
+	return f
+}
+
+// SHMAttachFlags holds the options for SharedMem.Attach
+type SHMAttachFlags struct {
+	// ReadOnly causes the new SharedMemMount to be readable but not writable
+	ReadOnly bool
+}
+
+func (sf *SHMAttachFlags) flags() int64 {
+	if sf == nil {
+		return 0
+	}
+
+	var f int64
+	if sf.ReadOnly {
+		f |= int64(C.SHM_RDONLY)
+	}
+
+	return f
+}
+
+func (sf *SHMAttachFlags) ro() bool {
+	if sf == nil {
+		return false
+	}
+	return sf.ReadOnly
 }

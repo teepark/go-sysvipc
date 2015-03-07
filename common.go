@@ -14,16 +14,6 @@ import (
 	"unsafe"
 )
 
-// Flag constants
-const (
-	IPC_CREAT   = C.IPC_CREAT
-	IPC_EXCL    = C.IPC_EXCL
-	IPC_NOWAIT  = C.IPC_NOWAIT
-	MSG_NOERROR = C.MSG_NOERROR
-	SHM_RDONLY  = C.SHM_RDONLY
-	SHM_RND     = C.SHM_RND
-)
-
 // IpcPerms holds information about the permissions of a SysV IPC object.
 type IpcPerms struct {
 	OwnerUID   int

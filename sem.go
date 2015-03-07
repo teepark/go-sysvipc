@@ -6,7 +6,6 @@ package sysvipc
 #include <sys/sem.h>
 int semget(key_t key, int nsems, int semflg);
 int semtimedop(int semid, struct sembuf *sops, size_t nsops, const struct timespec *timeout);
-//int semctl(int semid, int semnum, int cmd, ...);
 
 union arg4 {
 	int             val;
@@ -48,8 +47,8 @@ type SemaphoreSet struct {
 }
 
 // GetSemSet creates or retrieves the semaphore set for a given IPC key.
-func GetSemSet(key, count, flag int64) (*SemaphoreSet, error) {
-	rc, err := C.semget(C.key_t(key), C.int(count), C.int(flag))
+func GetSemSet(key, count int64, flags *SemSetFlags) (*SemaphoreSet, error) {
+	rc, err := C.semget(C.key_t(key), C.int(count), C.int(flags.flags()))
 	if rc == -1 {
 		return nil, err
 	}
@@ -190,7 +189,7 @@ func NewSemOps() *SemOps {
 }
 
 // Increment adds an operation that will increase a semaphore's number.
-func (so *SemOps) Increment(num uint16, by, flag int16) error {
+func (so *SemOps) Increment(num uint16, by int16, flags *SemOpFlags) error {
 	if by < 0 {
 		return errors.New("sysvipc: by must be >0. use Decrement")
 	} else if by == 0 {
@@ -200,23 +199,23 @@ func (so *SemOps) Increment(num uint16, by, flag int16) error {
 	*so = append(*so, C.struct_sembuf{
 		sem_num: C.ushort(num),
 		sem_op:  C.short(by),
-		sem_flg: C.short(flag),
+		sem_flg: C.short(flags.flags()),
 	})
 	return nil
 }
 
 // WaitZero adds and operation that will block until a semaphore's number is 0.
-func (so *SemOps) WaitZero(num uint16, flag int16) error {
+func (so *SemOps) WaitZero(num uint16, flags *SemOpFlags) error {
 	*so = append(*so, C.struct_sembuf{
 		sem_num: C.ushort(num),
 		sem_op:  C.short(0),
-		sem_flg: C.short(flag),
+		sem_flg: C.short(flags.flags()),
 	})
 	return nil
 }
 
 // Decrement adds an operation that will decrease a semaphore's number.
-func (so *SemOps) Decrement(num uint16, by, flag int16) error {
+func (so *SemOps) Decrement(num uint16, by int16, flags *SemOpFlags) error {
 	if by <= 0 {
 		return errors.New("sysvipc: by must be >0. use WaitZero or Increment")
 	}
@@ -224,7 +223,7 @@ func (so *SemOps) Decrement(num uint16, by, flag int16) error {
 	*so = append(*so, C.struct_sembuf{
 		sem_num: C.ushort(num),
 		sem_op:  C.short(-by),
-		sem_flg: C.short(flag),
+		sem_flg: C.short(flags.flags()),
 	})
 	return nil
 }
@@ -235,4 +234,54 @@ type SemSetInfo struct {
 	LastOp     time.Time
 	LastChange time.Time
 	Count      uint
+}
+
+// SemSetFlags holds the options for a GetSemSet() call
+type SemSetFlags struct {
+	// Create controls whether to create the set if it doens't already exist.
+	Create bool
+
+	// Exclusive causes GetSemSet to fail if the semaphore set already exists
+	// (only useful with Create).
+	Exclusive bool
+
+	// Perms is the file-style (rwxrwxrwx) permissions with which to create the
+	// semaphore set (also only useful with Create).
+	Perms int
+}
+
+func (sf *SemSetFlags) flags() int64 {
+	if sf == nil {
+		return 0
+	}
+
+	var f int64 = int64(sf.Perms) & 0777
+	if sf.Create {
+		f |= int64(C.IPC_CREAT)
+	}
+	if sf.Exclusive {
+		f |= int64(C.IPC_EXCL)
+	}
+
+	return f
+}
+
+// SemOpFlags holds the options for SemOp methods
+type SemOpFlags struct {
+	// DontWait causes calls that would otherwise block
+	// to instead fail with syscall.EAGAIN
+	DontWait bool
+}
+
+func (so *SemOpFlags) flags() int64 {
+	if so == nil {
+		return 0
+	}
+
+	var f int64
+	if so.DontWait {
+		f |= int64(C.IPC_NOWAIT)
+	}
+
+	return f
 }

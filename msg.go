@@ -19,11 +19,8 @@ import (
 type MessageQueue int64
 
 // GetMsgQueue creates or retrieves a message queue id for a given IPC key.
-// Useful flags are IPC_CREAT to create the queue if it doesn't already exist,
-// and IPC_EXCL (in conjunction with IPC_CREAT) to fail with an error if it
-// *does* already exists.
-func GetMsgQueue(key, flag int64) (MessageQueue, error) {
-	rc, err := C.msgget(C.key_t(key), C.int(flag))
+func GetMsgQueue(key int64, flags *MQFlags) (MessageQueue, error) {
+	rc, err := C.msgget(C.key_t(key), C.int(flags.flags()))
 	if rc == -1 {
 		return -1, err
 	}
@@ -31,7 +28,7 @@ func GetMsgQueue(key, flag int64) (MessageQueue, error) {
 }
 
 // Send places a new message onto the queue
-func (mq MessageQueue) Send(mtyp int64, body []byte, flag int64) error {
+func (mq MessageQueue) Send(mtyp int64, body []byte, flags *MQSendFlags) error {
 	b := make([]byte, len(body)+8)
 	copy(b[:8], serialize(mtyp))
 	copy(b[8:], body)
@@ -40,7 +37,7 @@ func (mq MessageQueue) Send(mtyp int64, body []byte, flag int64) error {
 		C.int(mq),
 		unsafe.Pointer(&b[0]),
 		C.size_t(len(body)),
-		C.int(flag),
+		C.int(flags.flags()),
 	)
 	if rc == -1 {
 		return err
@@ -49,7 +46,7 @@ func (mq MessageQueue) Send(mtyp int64, body []byte, flag int64) error {
 }
 
 // Receive retrieves a message from the queue.
-func (mq MessageQueue) Receive(maxlen uint, msgtyp, flag int64) ([]byte, int64, error) {
+func (mq MessageQueue) Receive(maxlen uint, msgtyp int64, flags *MQRecvFlags) ([]byte, int64, error) {
 	b := make([]byte, maxlen+8)
 
 	rc, err := C.msgrcv(
@@ -57,7 +54,7 @@ func (mq MessageQueue) Receive(maxlen uint, msgtyp, flag int64) ([]byte, int64, 
 		unsafe.Pointer(&b[0]),
 		C.size_t(maxlen),
 		C.long(msgtyp),
-		C.int(flag),
+		C.int(flags.flags()),
 	)
 	if rc == -1 {
 		return nil, 0, err
@@ -135,6 +132,83 @@ type MQInfo struct {
 
 	LastSender int
 	LastRcver  int
+}
+
+// MQFlags holds the flags/options for GetMsgQueue
+type MQFlags struct {
+	// Create controls whether to create the queue if it doesn't exist.
+	Create bool
+
+	// Exclusive causes GetMsgQueue to fail if the queue already exists (only
+	// useful with Create).
+	Exclusive bool
+
+	// Perms is the file-style (rwxrwxrwx) permissions with which to create the
+	// queue (also only useful with Create).
+	Perms int
+}
+
+func (mf *MQFlags) flags() int64 {
+	if mf == nil {
+		return 0
+	}
+
+	var f int64 = int64(mf.Perms) & 0777
+	if mf.Create {
+		f |= int64(C.IPC_CREAT)
+	}
+	if mf.Exclusive {
+		f |= int64(C.IPC_EXCL)
+	}
+
+	return f
+}
+
+// MQSendFlags hold the options for a MessageQueue.Send()
+type MQSendFlags struct {
+	// DontWait causes Send() calls that would otherwise
+	// block to instead fail with syscall.EAGAIN
+	DontWait bool
+}
+
+func (mf *MQSendFlags) flags() int64 {
+	if mf == nil {
+		return 0
+	}
+
+	var f int64
+	if mf.DontWait {
+		f |= int64(C.IPC_NOWAIT)
+	}
+
+	return f
+}
+
+// MQRecvFlags hold the options for a MessageQueue.Receive()
+type MQRecvFlags struct {
+	// DontWait causes Receive() calls that would otherwise
+	// block to instead fail with syscall.EAGAIN or syscall.ENOMSG
+	DontWait bool
+
+	// Truncate allows shortening the message if maxlen is
+	// shorter than the message being received
+	Truncate bool
+}
+
+func (mf *MQRecvFlags) flags() int64 {
+	if mf == nil {
+		return 0
+	}
+
+	var f int64
+	if mf.DontWait {
+		f |= int64(C.IPC_NOWAIT)
+	}
+	if mf.Truncate {
+		f |= int64(C.MSG_NOERROR)
+	}
+
+	return f
 }
 
 /*

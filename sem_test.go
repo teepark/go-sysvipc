@@ -10,7 +10,7 @@ import (
 
 func TestSemBadGet(t *testing.T) {
 	// no CREAT, doesn't exist
-	semset, err := GetSemSet(0xDA7ABA5E, 3, 0)
+	semset, err := GetSemSet(0xDA7ABA5E, 3, nil)
 	if err != syscall.ENOENT {
 		t.Error(err)
 	} else if err == nil {
@@ -18,7 +18,7 @@ func TestSemBadGet(t *testing.T) {
 	}
 
 	// 0 count
-	semset, err = GetSemSet(0xDA7ABA5E, 0, IPC_CREAT)
+	semset, err = GetSemSet(0xDA7ABA5E, 0, &SemSetFlags{Create: true})
 	if err != syscall.EINVAL {
 		t.Error(err)
 	} else if err == nil {
@@ -41,7 +41,7 @@ func TestSemIncrements(t *testing.T) {
 
 	ops := NewSemOps()
 	for i, t := range target {
-		ops.Increment(uint16(i), int16(t), 0)
+		ops.Increment(uint16(i), int16(t), nil)
 	}
 
 	if err := ss.Run(ops, -1); err != nil {
@@ -59,10 +59,10 @@ func TestSemIncrements(t *testing.T) {
 		}
 	}
 
-	if err := ops.Increment(0, -1, 0); err == nil {
+	if err := ops.Increment(0, -1, &SemOpFlags{DontWait: true}); err == nil {
 		t.Error("negative increment should fail")
 	}
-	if err := ops.Increment(0, 0, 0); err == nil {
+	if err := ops.Increment(0, 0, nil); err == nil {
 		t.Error("zero increment should fail")
 	}
 }
@@ -76,7 +76,7 @@ func TestSemDecrements(t *testing.T) {
 	}
 
 	ops := NewSemOps()
-	ops.Decrement(0, 2, 0)
+	ops.Decrement(0, 2, nil)
 	if err := ss.Run(ops, -1); err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestSemDecrements(t *testing.T) {
 	}
 
 	ops = NewSemOps()
-	ops.Decrement(0, 1, 0)
+	ops.Decrement(0, 1, nil)
 	if err := ss.Run(ops, -1); err != nil {
 		t.Fatal(err)
 	}
@@ -103,11 +103,52 @@ func TestSemDecrements(t *testing.T) {
 		t.Error("decrement didn't take")
 	}
 
-	if err := ops.Decrement(0, -1, 0); err == nil {
+	if err := ops.Decrement(0, -1, nil); err == nil {
 		t.Error("negative decrement should fail")
 	}
-	if err := ops.Decrement(0, 0, 0); err == nil {
+	if err := ops.Decrement(0, 0, nil); err == nil {
 		t.Error("zero decrement should fail")
+	}
+}
+
+func TestSemBlockingDecrements(t *testing.T) {
+	semSetup(t)
+	defer semTeardown(t)
+
+	ops := NewSemOps()
+	if err := ops.Decrement(0, 1, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ss.Run(ops, time.Millisecond); err != syscall.EAGAIN {
+		t.Error("Decrement against 0 should have timed out", err)
+	}
+}
+
+func TestSemNonBlockingDecrements(t *testing.T) {
+	semSetup(t)
+	defer semTeardown(t)
+
+	ops := NewSemOps()
+	if err := ops.Decrement(0, 1, &SemOpFlags{DontWait: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	// I'd love to skip the separate goroutine and do this with Run's timeout,
+	// but that would also fail with EAGAIN and I wouldn't know which
+	// (IPC_NOWAIT or the timeout) caused it.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if err := ss.Run(ops, -1); err != syscall.EAGAIN {
+			t.Error("non-blocking decrement against 0 should fail", err)
+		}
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Millisecond):
+		t.Error("timeout passed")
 	}
 }
 
@@ -123,7 +164,7 @@ func TestSemWaitZero(t *testing.T) {
 	go func() {
 		defer close(done)
 		ops := NewSemOps()
-		if err := ops.WaitZero(0, 0); err != nil {
+		if err := ops.WaitZero(0, nil); err != nil {
 			t.Fatal(err)
 		}
 		if err := ss.Run(ops, -1); err != nil {
@@ -159,7 +200,7 @@ func TestSemWaitZeroTimeout(t *testing.T) {
 	}
 
 	ops := NewSemOps()
-	if err := ops.WaitZero(0, 0); err != nil {
+	if err := ops.WaitZero(0, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -168,38 +209,31 @@ func TestSemWaitZeroTimeout(t *testing.T) {
 	}
 }
 
-func TestSemBlockingDecrements(t *testing.T) {
+func TestSemWaitZeroNonBlocking(t *testing.T) {
 	semSetup(t)
 	defer semTeardown(t)
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		ops := NewSemOps()
-		if err := ops.Decrement(0, 1, 0); err != nil {
-			t.Fatal(err)
-		}
-		if err := ss.Run(ops, -1); err != nil {
-			t.Fatal(err)
-		}
-	}()
-	runtime.Gosched()
-
-	select {
-	case <-done:
-		t.Error("Decrement failed to block when it should have")
-	default:
-	}
 
 	if err := ss.Setval(0, 1); err != nil {
 		t.Fatal(err)
 	}
-	runtime.Gosched()
 
-	start := time.Now()
-	<-done
-	if elapsed := time.Since(start); elapsed > 1*time.Millisecond {
-		t.Error("Decrement didn't unblock fast enough:", elapsed)
+	ops := NewSemOps()
+	if err := ops.WaitZero(0, &SemOpFlags{DontWait: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if err := ss.Run(ops, -1); err != syscall.EAGAIN {
+			t.Error("waitzero non-blocking should fail", err)
+		}
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Millisecond):
+		t.Error("timed out")
 	}
 }
 
@@ -233,7 +267,11 @@ func TestSemSetAndGetVals(t *testing.T) {
 }
 
 func TestSemGetValNotAllowed(t *testing.T) {
-	s, err := GetSemSet(0xDA7ABA5E, 1, IPC_CREAT|IPC_EXCL|0) // no read perms, even for owner
+	s, err := GetSemSet(0xDA7ABA5E, 1, &SemSetFlags{
+		Create: true,
+		Exclusive: true,
+		Perms: 0, // no read perms, even for owner
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +383,11 @@ func TestSemBadSet(t *testing.T) {
 var ss *SemaphoreSet
 
 func semSetup(t *testing.T) {
-	s, err := GetSemSet(0xDA7ABA5E, 4, IPC_CREAT|IPC_EXCL|0600)
+	s, err := GetSemSet(0xDA7ABA5E, 4, &SemSetFlags{
+		Create: true,
+		Exclusive: true,
+		Perms: 0600,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
