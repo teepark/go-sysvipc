@@ -129,6 +129,8 @@ func (ss *SemaphoreSet) Setall(values []uint16) error {
 	return nil
 }
 
+//TODO: missing functions for semctl() on GETPID, GETNCNT, and GETZCNT
+
 // Stat produces information about the semaphore set.
 func (ss *SemaphoreSet) Stat() (*SemSetInfo, error) {
 	sds := C.struct_semid_ds{}
