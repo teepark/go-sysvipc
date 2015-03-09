@@ -12,6 +12,9 @@ union arg4 {
 	struct semid_ds *buf;
 	unsigned short  *array;
 };
+int semctl_noarg(int semid, int semnum, int cmd) {
+	return semctl(semid, semnum, cmd);
+};
 int semctl_buf(int semid, int cmd, struct semid_ds *buf) {
 	union arg4 arg;
 	arg.buf = buf;
@@ -22,16 +25,10 @@ int semctl_arr(int semid, int cmd, unsigned short *arr) {
 	arg.array = arr;
 	return semctl(semid, 0, cmd, arg);
 };
-int semctl_rm(int semid) {
-	return semctl(semid, 0, IPC_RMID);
-};
-int semctl_getval(int semid, int semnum) {
-	return semctl(semid, semnum, GETVAL);
-};
-int semctl_setval(int semid, int semnum, int value) {
+int semctl_val(int semid, int semnum, int cmd, int value) {
 	union arg4 arg;
 	arg.val = value;
-	return semctl(semid, semnum, SETVAL, arg);
+	return semctl(semid, semnum, cmd, arg);
 };
 */
 import "C"
@@ -79,7 +76,7 @@ func (ss *SemaphoreSet) Run(ops *SemOps, timeout time.Duration) error {
 
 // Getval retrieves the value of a single semaphore in the set
 func (ss *SemaphoreSet) Getval(num uint16) (int, error) {
-	val, err := C.semctl_getval(C.int(ss.id), C.int(num))
+	val, err := C.semctl_noarg(C.int(ss.id), C.int(num), C.GETVAL)
 	if val == -1 {
 		return -1, err
 	}
@@ -88,7 +85,7 @@ func (ss *SemaphoreSet) Getval(num uint16) (int, error) {
 
 // Setval sets the value of a single semaphore in the set
 func (ss *SemaphoreSet) Setval(num uint16, value int) error {
-	val, err := C.semctl_setval(C.int(ss.id), C.int(num), C.int(value))
+	val, err := C.semctl_val(C.int(ss.id), C.int(num), C.SETVAL, C.int(value))
 	if val == -1 {
 		return err
 	}
@@ -129,7 +126,32 @@ func (ss *SemaphoreSet) Setall(values []uint16) error {
 	return nil
 }
 
-//TODO: missing functions for semctl() on GETPID, GETNCNT, and GETZCNT
+// Getpid returns the last process id to operate on the num-th semaphore
+func (ss *SemaphoreSet) Getpid(num uint16) (int, error) {
+	rc, err := C.semctl_noarg(C.int(ss.id), C.int(num), C.GETPID)
+	if rc == -1 {
+		return 0, err
+	}
+	return int(rc), nil
+}
+
+// GetNCnt returns the # of those blocked Decrementing the num-th semaphore
+func (ss *SemaphoreSet) GetNCnt(num uint16) (int, error) {
+	rc, err := C.semctl_noarg(C.int(ss.id), C.int(num), C.GETNCNT)
+	if rc == -1 {
+		return 0, err
+	}
+	return int(rc), nil
+}
+
+// GetZCnt returns the # of those blocked on WaitZero on the num-th semaphore
+func (ss *SemaphoreSet) GetZCnt(num uint16) (int, error) {
+	rc, err := C.semctl_noarg(C.int(ss.id), C.int(num), C.GETZCNT)
+	if rc == -1 {
+		return 0, err
+	}
+	return int(rc), nil
+}
 
 // Stat produces information about the semaphore set.
 func (ss *SemaphoreSet) Stat() (*SemSetInfo, error) {
@@ -175,7 +197,7 @@ func (ss *SemaphoreSet) Set(ssi *SemSetInfo) error {
 // Remove deletes the semaphore set.
 // This will also awake anyone blocked on the set with EIDRM.
 func (ss *SemaphoreSet) Remove() error {
-	rc, err := C.semctl_rm(C.int(ss.id))
+	rc, err := C.semctl_noarg(C.int(ss.id), 0, C.IPC_RMID)
 	if rc == -1 {
 		return err
 	}

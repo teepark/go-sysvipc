@@ -3,6 +3,7 @@ package sysvipc
 import (
 	"os"
 	"runtime"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -268,9 +269,9 @@ func TestSemSetAndGetVals(t *testing.T) {
 
 func TestSemGetValNotAllowed(t *testing.T) {
 	s, err := GetSemSet(0xDA7ABA5E, 1, &SemSetFlags{
-		Create: true,
+		Create:    true,
 		Exclusive: true,
-		Perms: 0, // no read perms, even for owner
+		Perms:     0, // no read perms, even for owner
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -336,7 +337,7 @@ func TestSemStat(t *testing.T) {
 	if info.Perms.CreatorUID != os.Getuid() {
 		t.Error("wrong creator uid", info.Perms.CreatorUID)
 	}
-	if info.Perms.Mode & 0777 != 0600 {
+	if info.Perms.Mode&0777 != 0600 {
 		t.Error("wrong mode", info.Perms.Mode)
 	}
 	if info.Count != 4 {
@@ -369,8 +370,124 @@ func TestSemSetSet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if info.Perms.Mode & 0777 != 0400 {
+	if info.Perms.Mode&0777 != 0400 {
 		t.Error("set() didn't take")
+	}
+}
+
+func TestSemGetpid(t *testing.T) {
+	semSetup(t)
+	defer semTeardown(t)
+
+	ops := NewSemOps()
+	if err := ops.Increment(0, 1, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := ss.Run(ops, -1); err != nil {
+		t.Fatal(err)
+	}
+
+	pid, err := ss.Getpid(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if pid != os.Getpid() {
+		t.Error("we should be the last pid to operate on sem 0")
+	}
+
+	if _, err := ss.Getpid(7); err != syscall.EINVAL {
+		t.Error("Getpid should fail with EINVAL for an out-of-bounds num", err)
+	}
+}
+
+func TestSemGetNCnt(t *testing.T) {
+	semSetup(t)
+	defer semTeardown(t)
+
+	cnt, err := ss.GetNCnt(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cnt != 0 {
+		t.Error("shouldn't be any decrement waiters yet")
+	}
+
+	wg := &sync.WaitGroup{}
+	wg.Add(3)
+	for i := 0; i < 3; i++ {
+		go func() {
+			ops := NewSemOps()
+			if err := ops.Decrement(0, 1, nil); err != nil {
+				t.Fatal(err)
+			}
+			wg.Done()
+			ss.Run(ops, -1)
+		}()
+	}
+
+	wg.Wait()
+	runtime.Gosched()
+
+	cnt, err = ss.GetNCnt(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cnt != 3 {
+		t.Error("should be 3 waiters, instead have", cnt)
+	}
+
+	cnt, err = ss.GetNCnt(14)
+	if err != syscall.EINVAL {
+		t.Error("GetNCnt with out-of-bounds num should fail")
+	}
+}
+
+func TestSemGetZCnt(t *testing.T) {
+	semSetup(t)
+	defer semTeardown(t)
+
+	if err := ss.Setval(0, 2); err != nil {
+		t.Fatal(err)
+	}
+
+	cnt, err := ss.GetZCnt(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cnt != 0 {
+		t.Error("no waiters, GetZCnt should be 0")
+	}
+
+	wg := &sync.WaitGroup{}
+	wg.Add(3)
+	for i := 0; i < 3; i++ {
+		go func() {
+			ops := NewSemOps()
+			if err := ops.WaitZero(0, nil); err != nil {
+				t.Fatal(err)
+			}
+
+			wg.Done()
+
+			ss.Run(ops, time.Millisecond)
+		}()
+	}
+
+	wg.Wait()
+	runtime.Gosched()
+
+	cnt, err = ss.GetZCnt(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cnt != 3 {
+		t.Error("should be 3 waiters, instead have", cnt)
+	}
+
+	_, err = ss.GetZCnt(11)
+	if err != syscall.EINVAL {
+		t.Error("GetZCnt should fail with an out-of-bounds num")
 	}
 }
 
@@ -384,9 +501,9 @@ var ss *SemaphoreSet
 
 func semSetup(t *testing.T) {
 	s, err := GetSemSet(0xDA7ABA5E, 4, &SemSetFlags{
-		Create: true,
+		Create:    true,
 		Exclusive: true,
-		Perms: 0600,
+		Perms:     0600,
 	})
 	if err != nil {
 		t.Fatal(err)
