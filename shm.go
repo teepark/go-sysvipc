@@ -13,8 +13,13 @@ import "C"
 import (
 	"errors"
 	"io"
+	"sync/atomic"
 	"time"
 	"unsafe"
+)
+
+var (
+	ErrReadOnlyShm = errors.New("Read-Only shared mem attachment")
 )
 
 // SharedMem is an allocated block of memory sharable with multiple processes.
@@ -132,7 +137,7 @@ func (shma *SharedMemMount) Read(p []byte) (int, error) {
 func (shma *SharedMemMount) Write(p []byte) (int, error) {
 	if shma.readonly {
 		// see comment on readonly field above
-		return 0, errors.New("Read-Only shared mem attachment")
+		return 0, ErrReadOnlyShm
 	}
 
 	var err error
@@ -151,6 +156,35 @@ func (shma *SharedMemMount) Write(p []byte) (int, error) {
 	memmove(dest, src, (uintptr)(l))
 	shma.offset += l
 	return int(l), err
+}
+
+// AtomicWriteUint32 places an uint32 value into the shared memory
+// segment atomically (see "sync/atomic").
+func (shma *SharedMemMount) AtomicWriteUint32(v uint32) error {
+	if shma.readonly {
+		// see comment on readonly field above
+		return ErrReadOnlyShm
+	}
+
+	if (shma.length - shma.offset) < 4 {
+		return io.ErrShortWrite
+	}
+
+	atomic.StoreUint32((*uint32)((unsafe.Pointer)(uintptr(shma.ptr) + uintptr(shma.offset))), v)
+	shma.offset += 4
+	return nil
+}
+
+// AtomicReadUint32 returns an uint32 value from the current position
+// of the shared memory segment using atomic read (see "sync/atomic").
+func (shma *SharedMemMount) AtomicReadUint32() (uint32, error) {
+	if (shma.length - shma.offset) < 4 {
+		return 0, io.EOF
+	}
+
+	v := atomic.LoadUint32((*uint32)((unsafe.Pointer)(uintptr(shma.ptr) + uintptr(shma.offset))))
+	shma.offset += 4
+	return v, nil
 }
 
 // ReadByte returns a single byte from the current position in shared memory.
@@ -176,7 +210,7 @@ func (shma *SharedMemMount) UnreadByte() error {
 func (shma *SharedMemMount) WriteByte(c byte) error {
 	if shma.readonly {
 		// see comment on readonly field above
-		return errors.New("Read-Only shared mem attachment")
+		return ErrReadOnlyShm
 	}
 	if shma.offset == shma.length {
 		return io.ErrShortWrite
