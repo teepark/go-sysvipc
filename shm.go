@@ -170,7 +170,7 @@ func (shma *SharedMemMount) AtomicWriteUint32(v uint32) error {
 		return io.ErrShortWrite
 	}
 
-	atomic.StoreUint32((*uint32)((unsafe.Pointer)(uintptr(shma.ptr) + uintptr(shma.offset))), v)
+	atomic.StoreUint32((*uint32)((unsafe.Pointer)(uintptr(shma.ptr)+uintptr(shma.offset))), v)
 	shma.offset += 4
 	return nil
 }
