@@ -123,7 +123,7 @@ func (shma *SharedMemMount) Read(p []byte) (int, error) {
 	src := unsafe.Pointer(uintptr(shma.ptr) + uintptr(shma.offset))
 	dest := unsafe.Pointer(&p[0])
 
-	C.memmove(dest, src, C.size_t(l))
+	memmove(dest, src, (uintptr)(l))
 	shma.offset += l
 	return int(l), err
 }
@@ -148,7 +148,7 @@ func (shma *SharedMemMount) Write(p []byte) (int, error) {
 	dest := unsafe.Pointer(uintptr(shma.ptr) + uintptr(shma.offset))
 	src := unsafe.Pointer(&p[0])
 
-	C.memmove(dest, src, C.size_t(l))
+	memmove(dest, src, (uintptr)(l))
 	shma.offset += l
 	return int(l), err
 }
