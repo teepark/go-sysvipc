@@ -29,7 +29,7 @@ func TestSemBadGet(t *testing.T) {
 
 func TestSemBadRemove(t *testing.T) {
 	s := &SemaphoreSet{5, 2} // 5 was never created
-	if err := s.Remove(); err != syscall.EIDRM {
+	if err := s.Remove(); err != syscall.EINVAL {
 		t.Fatal(err)
 	}
 }
@@ -109,20 +109,6 @@ func TestSemDecrements(t *testing.T) {
 	}
 	if err := ops.Decrement(0, 0, nil); err == nil {
 		t.Error("zero decrement should fail")
-	}
-}
-
-func TestSemBlockingDecrements(t *testing.T) {
-	semSetup(t)
-	defer semTeardown(t)
-
-	ops := NewSemOps()
-	if err := ops.Decrement(0, 1, nil); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := ss.Run(ops, time.Millisecond); err != syscall.EAGAIN {
-		t.Error("Decrement against 0 should have timed out", err)
 	}
 }
 
@@ -321,8 +307,8 @@ func TestSemStat(t *testing.T) {
 	semSetup(t)
 	defer semTeardown(t)
 
-	// EIDRM with a bad semset id
-	if _, err := (&SemaphoreSet{5, 2}).Stat(); err != syscall.EIDRM {
+	// EINVAL with a bad semset id
+	if _, err := (&SemaphoreSet{5, 2}).Stat(); err != syscall.EINVAL {
 		t.Error("semctl(IPC_STAT) on a made up semset id should fail")
 	}
 
@@ -492,7 +478,7 @@ func TestSemGetZCnt(t *testing.T) {
 }
 
 func TestSemBadSet(t *testing.T) {
-	if _, err := (&SemaphoreSet{5, 2}).Stat(); err != syscall.EIDRM {
+	if _, err := (&SemaphoreSet{5, 2}).Stat(); err != syscall.EINVAL {
 		t.Error("semctl(IPC_SET) on a made up semset id should fail")
 	}
 }

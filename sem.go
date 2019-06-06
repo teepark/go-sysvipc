@@ -5,7 +5,6 @@ package sysvipc
 #include <sys/ipc.h>
 #include <sys/sem.h>
 int semget(key_t key, int nsems, int semflg);
-int semtimedop(int semid, struct sembuf *sops, size_t nsops, const struct timespec *timeout);
 
 union arg4 {
 	int             val;
@@ -57,8 +56,8 @@ func (ss *SemaphoreSet) Run(ops *SemOps, timeout time.Duration) error {
 	var cto *C.struct_timespec
 	if timeout >= 0 {
 		cto = &C.struct_timespec{
-			tv_sec:  C.__time_t(timeout / time.Second),
-			tv_nsec: C.__syscall_slong_t(timeout % time.Second),
+			tv_sec:  C.time_t(timeout / time.Second),
+			tv_nsec: C.long(timeout % time.Second),
 		}
 	}
 
@@ -67,7 +66,7 @@ func (ss *SemaphoreSet) Run(ops *SemOps, timeout time.Duration) error {
 		opptr = &(*ops)[0]
 	}
 
-	rc, err := C.semtimedop(C.int(ss.id), opptr, C.size_t(len(*ops)), cto)
+	rc, err := semtimedop(C.int(ss.id), opptr, C.size_t(len(*ops)), cto)
 	if rc == -1 {
 		return err
 	}

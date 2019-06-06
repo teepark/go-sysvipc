@@ -21,10 +21,7 @@ type MessageQueue int64
 // GetMsgQueue creates or retrieves a message queue id for a given IPC key.
 func GetMsgQueue(key int64, flags *MQFlags) (MessageQueue, error) {
 	rc, err := C.msgget(C.key_t(key), C.int(flags.flags()))
-	if rc == -1 {
-		return -1, err
-	}
-	return MessageQueue(rc), nil
+	return MessageQueue(rc), err
 }
 
 // Send places a new message onto the queue

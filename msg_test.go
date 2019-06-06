@@ -8,13 +8,13 @@ import (
 
 func TestMSGBadGet(t *testing.T) {
 	if _, err := GetMsgQueue(0xDA7ABA5E, nil); err != syscall.ENOENT {
-		t.Error("GetMsgQueue on a non-existent queue without CREAT should fail")
+		t.Error("GetMsgQueue on a non-existent queue without CREAT should fail", err)
 	}
 }
 
 func TestSendRcv(t *testing.T) {
-	msgSetup(t)
-	defer msgTeardown(t)
+	q := msgSetup(t)
+	defer msgTeardown(t, q)
 
 	if err := q.Send(-1, nil, nil); err != syscall.EINVAL {
 		t.Error("msgsnd with negative mtyp should fail", err)
@@ -36,8 +36,8 @@ func TestSendRcv(t *testing.T) {
 }
 
 func TestNonBlockingSend(t *testing.T) {
-	msgSetup(t)
-	defer msgTeardown(t)
+	q := msgSetup(t)
+	defer msgTeardown(t, q)
 
 	info, err := q.Stat()
 	if err != nil {
@@ -56,14 +56,15 @@ func TestNonBlockingSend(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := q.Send(3, []byte("more than 8"), &MQSendFlags{DontWait: true}); err != syscall.EAGAIN {
+	err := q.Send(3, []byte("more than 8"), &MQSendFlags{DontWait: true})
+	if err != syscall.EAGAIN && err != syscall.EINVAL {
 		t.Error("too-long write should have failed", err)
 	}
 }
 
 func TestNonBlockingReceive(t *testing.T) {
-	msgSetup(t)
-	defer msgTeardown(t)
+	q := msgSetup(t)
+	defer msgTeardown(t, q)
 
 	_, _, err := q.Receive(64, -99, &MQRecvFlags{DontWait: true})
 	if err != syscall.EAGAIN && err != syscall.ENOMSG {
@@ -72,8 +73,8 @@ func TestNonBlockingReceive(t *testing.T) {
 }
 
 func TestMSGNOERR(t *testing.T) {
-	msgSetup(t)
-	defer msgTeardown(t)
+	q := msgSetup(t)
+	defer msgTeardown(t, q)
 
 	if err := q.Send(3, []byte("this message is pretty long"), nil); err != nil {
 		t.Fatal(err)
@@ -92,8 +93,8 @@ func TestMSGNOERR(t *testing.T) {
 }
 
 func TestMSGStats(t *testing.T) {
-	msgSetup(t)
-	defer msgTeardown(t)
+	q := msgSetup(t)
+	defer msgTeardown(t, q)
 
 	msg := "this is a message in a test"
 
@@ -129,8 +130,8 @@ func TestMSGStats(t *testing.T) {
 }
 
 func TestMSGSet(t *testing.T) {
-	msgSetup(t)
-	defer msgTeardown(t)
+	q := msgSetup(t)
+	defer msgTeardown(t, q)
 
 	info, err := q.Stat()
 	if err != nil {
@@ -161,8 +162,8 @@ func TestMSGSet(t *testing.T) {
 }
 
 func TestRemove(t *testing.T) {
-	msgSetup(t)
-	defer msgTeardown(t)
+	q := msgSetup(t)
+	defer msgTeardown(t, q)
 
 	if err := MessageQueue(5).Remove(); err != syscall.EINVAL {
 		t.Error("remove on a bad mqid should fail", err)
@@ -177,12 +178,10 @@ func TestRemove(t *testing.T) {
 	}
 
 	// so the msgTeardown doesn't fail
-	msgSetup(t)
+	q = msgSetup(t)
 }
 
-var q MessageQueue
-
-func msgSetup(t *testing.T) {
+func msgSetup(t *testing.T) MessageQueue {
 	mq, err := GetMsgQueue(0xDA7ABA5E, &MQFlags{
 		Create:    true,
 		Exclusive: true,
@@ -191,11 +190,11 @@ func msgSetup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	q = mq
+	return mq
 }
 
-func msgTeardown(t *testing.T) {
-	if err := q.Remove(); err != nil {
+func msgTeardown(t *testing.T, mq MessageQueue) {
+	if err := mq.Remove(); err != nil {
 		t.Fatal(err)
 	}
 }
