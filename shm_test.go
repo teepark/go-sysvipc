@@ -101,6 +101,30 @@ func TestReadAndWrite(t *testing.T) {
 	if i != 0 {
 		t.Error("wrong length", i)
 	}
+
+	_, err = mount.Seek(0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = mount.AtomicWriteUint32(0x01020304)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = mount.Seek(0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	v, err := mount.AtomicReadUint32()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if v != 0x01020304 {
+		t.Errorf("Got %v, expected %v", v, 0x01020304)
+	}
 }
 
 func TestSHMReadOnlyError(t *testing.T) {
