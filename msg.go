@@ -98,7 +98,7 @@ func (mq MessageQueue) Set(mqi *MQInfo) error {
 		msg_perm: C.struct_ipc_perm{
 			uid:  C.__uid_t(mqi.Perms.OwnerUID),
 			gid:  C.__gid_t(mqi.Perms.OwnerGID),
-			mode: C.ushort(mqi.Perms.Mode & 0x1FF),
+			mode: C.__mode_t(mqi.Perms.Mode & 0x1FF),
 		},
 		msg_qbytes: C.msglen_t(mqi.MaxBytes),
 	}

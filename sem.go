@@ -183,7 +183,7 @@ func (ss *SemaphoreSet) Set(ssi *SemSetInfo) error {
 		sem_perm: C.struct_ipc_perm{
 			uid:  C.__uid_t(ssi.Perms.OwnerUID),
 			gid:  C.__gid_t(ssi.Perms.OwnerGID),
-			mode: C.ushort(ssi.Perms.Mode & 0x1FF),
+			mode: C.__mode_t(ssi.Perms.Mode & 0x1FF),
 		},
 	}
 
