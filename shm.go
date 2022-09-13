@@ -82,7 +82,7 @@ func (shm *SharedMem) Set(info *SHMInfo) error {
 		shm_perm: C.struct_ipc_perm{
 			uid:  C.__uid_t(info.Perms.OwnerUID),
 			gid:  C.__gid_t(info.Perms.OwnerGID),
-			mode: C.ushort(info.Perms.Mode & 0x1FF),
+			mode: C.__mode_t(info.Perms.Mode & 0x1FF),
 		},
 	}
 
